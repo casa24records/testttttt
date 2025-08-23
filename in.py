@@ -3,7 +3,7 @@
 import os, json, requests, pathlib, datetime as dt, time, csv
 
 # ==================== CONFIGURACIÓN ====================
-ACCESS_TOKEN   = "EAAKuuZBZAgOugBPUQhNZCvoNSixTsvMUgX8h6X5ZCTZAUqTYAu5xFueSZA2hBJdXN7sw0jdPH4QyDY6wXiKQwbYz6Sw2VsaziZCxZBR9uAcxk0zXaNKhR9MGehuHPRuPX6sYVfZCtvii1h8HW2ZCBUF0fiSzE6iWUZCB4uQKnZCue134Ana93maR61PZCstlgMAszAlSUhgZDZD"
+ACCESS_TOKEN   = "EAAKuuZBZAgOugBPRZBLNB5fqOaOhKgFXEcux7msZCrsBjfkYeXnj6EhIShff6faTrNu9xEYS4hk3EoikuSI74YJvIyaGRsyEBYEDupLwnHsAJ6LGnTbtdurlbI9sSthCqHthpAV3LKaoSljRhKMTZAuf4xbTlCWrfm5vGTZB3tpl4DEbm1Ttc6TafK8fNmXJtIqgZDZD"
 
 MY_IG_USER_ID  = "103136425167758"          # si ya conoces tu ID numérico (1784...), ponlo aquí
 MY_PAGE_NAME   = "casa24records"   # nombre EXACTO de tu Page en Facebook
