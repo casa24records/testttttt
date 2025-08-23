@@ -5,7 +5,7 @@ import os, json, requests, pathlib, datetime as dt, time, csv
 # ==================== CONFIGURACIÓN ====================
 ACCESS_TOKEN   = "EAAKuuZBZAgOugBPRZBLNB5fqOaOhKgFXEcux7msZCrsBjfkYeXnj6EhIShff6faTrNu9xEYS4hk3EoikuSI74YJvIyaGRsyEBYEDupLwnHsAJ6LGnTbtdurlbI9sSthCqHthpAV3LKaoSljRhKMTZAuf4xbTlCWrfm5vGTZB3tpl4DEbm1Ttc6TafK8fNmXJtIqgZDZD"
 
-MY_IG_USER_ID  = "103136425167758"          # si ya conoces tu ID numérico (1784...), ponlo aquí
+MY_IG_USER_ID  = "17841404800001416"          # si ya conoces tu ID numérico (1784...), ponlo aquí
 MY_PAGE_NAME   = "casa24records"   # nombre EXACTO de tu Page en Facebook
 MY_PAGE_ID     = ""          # opcional, si prefieres poner el ID de la Page
 
