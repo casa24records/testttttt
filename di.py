@@ -1,50 +1,16 @@
 import requests
 
-# Replace these with your actual values
-BOT_TOKEN = "MTQxMDc2MDEzODQ0ODcwMzYwMw.GkXwBQ.OuKZc7kIRqc1E8kI9q0yCUSF7aB5O0QNnowi54"
-GUILD_ID = "1000913895415877712"
+TOKEN = "MTQxMDc2MDEzODQ0ODcwMzYwMw.GouVyB.-97IIZ3dNtVlCg-TBpE7y23SI56j9ZPio98VXw"          # from Bot tab (not Client Secret)
+GUILD_ID = "1000913895415877712"           # you already have this
 
-print("Testing Discord bot connection...")
-print(f"Using Guild ID: {GUILD_ID}")
-print(f"Token starts with: {BOT_TOKEN[:20]}..." if len(BOT_TOKEN) > 20 else "Token too short")
+# 1) Validate token
+me = requests.get("https://discord.com/api/v10/users/@me",
+                  headers={"Authorization": f"Bot {TOKEN}"}, timeout=10)
+print("users/@me:", me.status_code, me.text)  # should be 200
 
-# First, test if the bot token is valid
-print("\n1. Testing bot authentication...")
-headers = {'Authorization': f'Bot {BOT_TOKEN}'}
-response = requests.get('https://discord.com/api/v10/users/@me', headers=headers)
-
-if response.status_code == 200:
-    bot_info = response.json()
-    print(f"✓ Bot authenticated successfully")
-    print(f"   Bot name: {bot_info['username']}")
-    print(f"   Bot ID: {bot_info['id']}")
-elif response.status_code == 401:
-    print("✗ Invalid bot token - check your token")
-    print("   Make sure you copied the entire token from Discord Developer Portal")
-    exit()
-else:
-    print(f"✗ Unexpected error: {response.status_code}")
-    print(f"   Response: {response.text}")
-    exit()
-
-# Now test guild access
-print("\n2. Testing guild access...")
-response = requests.get(
-    f'https://discord.com/api/v10/guilds/{GUILD_ID}?with_counts=true',
-    headers=headers
-)
-
-if response.status_code == 200:
-    data = response.json()
-    print(f"✓ Successfully accessed guild")
-    print(f"   Server name: {data['name']}")
-    print(f"   Member count: {data['approximate_member_count']}")
-elif response.status_code == 403:
-    print("✗ Bot doesn't have access to this guild")
-    print("   Make sure the bot is added to your server")
-elif response.status_code == 404:
-    print("✗ Guild not found")
-    print("   Check that your GUILD_ID is correct")
-else:
-    print(f"✗ Error: {response.status_code}")
-    print(f"   Response: {response.text}")
+# 2) Get counts
+r = requests.get(f"https://discord.com/api/v10/guilds/{GUILD_ID}",
+                 headers={"Authorization": f"Bot {TOKEN}"},
+                 params={"with_counts": "true"},
+                 timeout=10)
+print("guilds:", r.status_code, r.text)       # should be 200 with counts
