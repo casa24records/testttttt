@@ -1,8 +1,8 @@
 import requests
 
 # Full token from Bot tab (NOT client secret!)
-BOT_TOKEN = "PASTE_YOUR_TOKEN_HERE".strip()
-GUILD_ID = "MTQxMDc2MDEzODQ0ODcwMzYwMw.GouVyB.-97IIZ3dNtVlCg-TBpE7y23SI56j9ZPio98VXw"  # your guild ID
+BOT_TOKEN = "MTQxMDc2MDEzODQ0ODcwMzYwMw.GouVyB.-97IIZ3dNtVlCg-TBpE7y23SI56j9ZPio98VXw".strip()
+GUILD_ID = "1000913895415877712"  # your guild ID
 
 headers = {"Authorization": f"Bot {BOT_TOKEN}"}
 
