@@ -1,13 +1,18 @@
 import requests
 
-# Paste your FULL new token here (it should be ~70+ characters)
-BOT_TOKEN = "MTQxMDc2MDEzODQ0ODcwMzYwMw.GouVyB.-97IIZ3dNtVlCg-TBpE7y23SI56j9ZPio98VXw"
-GUILD_ID = "1000913895415877712"
+# Full token from Bot tab (NOT client secret!)
+BOT_TOKEN = "PASTE_YOUR_TOKEN_HERE".strip()
+GUILD_ID = "MTQxMDc2MDEzODQ0ODcwMzYwMw.GouVyB.-97IIZ3dNtVlCg-TBpE7y23SI56j9ZPio98VXw"  # your guild ID
 
-# Test the connection
-headers = {'Authorization': f'Bot {BOT_TOKEN}'}
+headers = {"Authorization": f"Bot {BOT_TOKEN}"}
+
+# 1) Test token works
+test = requests.get("https://discord.com/api/v10/users/@me", headers=headers)
+print("users/@me:", test.status_code, test.text)
+
+# 2) Now get member counts
 response = requests.get(
-    f'https://discord.com/api/v10/guilds/{GUILD_ID}?with_counts=true',
+    f"https://discord.com/api/v10/guilds/{GUILD_ID}?with_counts=true",
     headers=headers
 )
 
@@ -16,4 +21,4 @@ if response.status_code == 200:
     print(f"Server: {data['name']}")
     print(f"Members: {data['approximate_member_count']}")
 else:
-    print(f"Error: {response.status_code}")
+    print(f"Error: {response.status_code}, {response.text}")
