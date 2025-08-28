@@ -1,7 +1,7 @@
 import requests
 
 # Replace these with your actual values
-BOT_TOKEN = "MTQxMDc2MDEzODQ0ODcwMzYwMw.G41dDh.GLcUfa3d75kry8CXsrKdw3Wqdtr08R80ob_e2g"
+BOT_TOKEN = "MTQxMDc2MDEzODQ0ODcwMzYwMw.Gux0VM.uC3fZIgczH4bjoBiU_q_7hg1TxJkDEL6cOOKs4"
 GUILD_ID = "1000913895415877712"
 
 print("Testing Discord bot connection...")
