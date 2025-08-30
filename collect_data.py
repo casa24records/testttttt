@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
 Robust Spotify, YouTube, Instagram, and Discord data collection script
-Handles K/M/B notation and meta tag extraction with proper number parsing
-Fixed to correctly handle both small and large listener counts
+Fixed to correctly parse all monthly listener counts including 0
 """
 
 import base64
@@ -92,7 +91,7 @@ artists = [
     },
     {
         'name': 'Casa 24Beats',
-        'spotify_id': None,
+        'spotify_id': None,  # No Spotify presence
         'youtube_id': 'UCg3IuQwjIBbkvEbDVJZd8VQ',
         'instagram_username': None,
     }
@@ -276,7 +275,7 @@ def get_instagram_data(username: str, artist_name: str) -> Dict:
 
 def parse_listener_number(text: str) -> Optional[int]:
     """
-    Parse monthly listeners from text - FIXED to handle both raw numbers and K/M/B notation correctly
+    Parse monthly listeners - properly handles 0, small numbers, and K/M/B notation
     """
     if not text:
         return None
@@ -287,35 +286,17 @@ def parse_listener_number(text: str) -> Optional[int]:
     text = text.replace('\u202f', ' ')
     text = text.replace('\\u00B7', '·')
     text = text.replace('\xa0', ' ')
+    text = text.replace('&nbsp;', ' ')
     
-    # IMPORTANT: Check for raw numbers FIRST (like "554 monthly listeners")
-    # This prevents misinterpretation of small numbers
-    raw_patterns = [
-        r'(\d{1,6})\s*monthly\s*listeners?',  # Raw number up to 999,999
-        r'Artist\s*[·•]\s*(\d{1,6})\s*monthly\s*listeners?',
-    ]
+    # Special handling for "0 monthly listeners"
+    if re.search(r'\b0\s*monthly\s*listeners?\b', text, re.IGNORECASE):
+        logging.debug(f"Found 0 monthly listeners in text: '{text}'")
+        return 0
     
-    for pattern in raw_patterns:
-        match = re.search(pattern, text, re.IGNORECASE)
-        if match:
-            number_str = match.group(1)
-            # Check if this is followed by K/M/B
-            full_context = text[match.start():match.end() + 10] if match.end() + 10 < len(text) else text[match.start():]
-            if not re.search(r'[KMB]', full_context, re.IGNORECASE):
-                # It's a raw number, not abbreviated
-                try:
-                    value = int(number_str)
-                    if 0 <= value < 1000000:  # Reasonable range for raw numbers
-                        logging.debug(f"Parsed raw number from '{text}': {value}")
-                        return value
-                except ValueError:
-                    pass
-    
-    # NOW check for K/M/B notation
+    # Look for K/M/B notation FIRST (with word boundaries to avoid partial matches)
     kmb_patterns = [
-        r'(\d+(?:[.,]\d+)?)\s*([KMB])\s*monthly\s*listeners?',
-        r'Artist\s*[·•]\s*(\d+(?:[.,]\d+)?)\s*([KMB])\s*monthly\s*listeners?',
-        r'(\d+(?:[.,]\d+)?)\s*([KMB])\s+monthly\s*listeners?',
+        r'\b(\d+(?:[.,]\d+)?)\s*([KMB])\s*monthly\s*listeners?\b',
+        r'Artist\s*[·•]\s*(\d+(?:[.,]\d+)?)\s*([KMB])\s*monthly\s*listeners?\b',
     ]
     
     for pattern in kmb_patterns:
@@ -338,22 +319,26 @@ def parse_listener_number(text: str) -> Optional[int]:
             except ValueError:
                 continue
     
-    # Last resort: try to find any number with thousands separators
-    separator_patterns = [
-        r'(\d{1,3}(?:[,.\s]\d{3})+)\s*monthly\s*listeners?',
-        r'Artist\s*[·•]\s*(\d{1,3}(?:[,.\s]\d{3})+)\s*monthly\s*listeners?',
+    # Now look for raw numbers (including those with commas/periods as separators)
+    raw_patterns = [
+        r'\b(\d{1,3}(?:[,.\s]\d{3})*)\s*monthly\s*listeners?\b',  # Numbers with separators
+        r'\b(\d+)\s*monthly\s*listeners?\b',  # Simple numbers
+        r'Artist\s*[·•]\s*(\d{1,3}(?:[,.\s]\d{3})*)\s*monthly\s*listeners?\b',
+        r'Artist\s*[·•]\s*(\d+)\s*monthly\s*listeners?\b',
     ]
     
-    for pattern in separator_patterns:
+    for pattern in raw_patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            number_str = match.group(1)
-            # Remove all separators
+            number_str = match.group(1).strip()
+            
+            # Remove separators
             clean_number = re.sub(r'[,.\s]', '', number_str)
+            
             try:
                 value = int(clean_number)
-                if 0 <= value <= 1000000000:
-                    logging.debug(f"Parsed number with separators from '{text}': {value}")
+                if 0 <= value <= 1000000000:  # Valid range
+                    logging.debug(f"Parsed raw number from '{text}': {value}")
                     return value
             except ValueError:
                 continue
@@ -362,7 +347,7 @@ def parse_listener_number(text: str) -> Optional[int]:
 
 def extract_monthly_listeners_from_html(html_content: str, artist_name: str) -> Optional[int]:
     """
-    Extract monthly listeners with proper handling of both small and large numbers
+    Extract monthly listeners with improved parsing for all cases including 0
     """
     
     # Clean HTML content
@@ -370,8 +355,9 @@ def extract_monthly_listeners_from_html(html_content: str, artist_name: str) -> 
     html_content = html_content.replace('\u202f', ' ')
     html_content = html_content.replace('\\u00B7', '·')
     html_content = html_content.replace('\xa0', ' ')
+    html_content = html_content.replace('&nbsp;', ' ')
     
-    # Strategy 1: Check meta tags first (most reliable)
+    # Strategy 1: Look in meta tags (most reliable)
     meta_patterns = [
         r'<meta[^>]*property="og:description"[^>]*content="([^"]*)"',
         r'<meta[^>]*content="([^"]*)"[^>]*property="og:description"',
@@ -382,21 +368,25 @@ def extract_monthly_listeners_from_html(html_content: str, artist_name: str) -> 
     ]
     
     for pattern in meta_patterns:
-        matches = re.findall(pattern, html_content, re.IGNORECASE)
+        matches = re.findall(pattern, html_content, re.IGNORECASE | re.DOTALL)
         for match in matches:
             match = html.unescape(match)
             if 'monthly listener' in match.lower():
-                listeners = parse_listener_number(match)
-                if listeners is not None:
-                    logging.info(f"Found {artist_name} listeners in meta tag: {listeners:,} from text: '{match}'")
-                    return listeners
+                # Extract just the part with monthly listeners
+                listener_match = re.search(r'(\d+(?:[.,]\d+)?(?:\s*[KMB])?|\b0)\s*monthly\s*listeners?', match, re.IGNORECASE)
+                if listener_match:
+                    full_text = listener_match.group(0)
+                    listeners = parse_listener_number(full_text)
+                    if listeners is not None:
+                        logging.info(f"Found {artist_name} listeners in meta tag: {listeners:,} from text: '{full_text}'")
+                        return listeners
     
-    # Strategy 2: Look for JSON data (very accurate when present)
+    # Strategy 2: Look for JSON data
     json_patterns = [
         r'"monthlyListeners"\s*:\s*(\d+)',
         r'"monthly_listeners"\s*:\s*(\d+)',
         r'monthlyListeners["\']?\s*:\s*(\d+)',
-        r'"followers"\s*:\s*{\s*"monthly"\s*:\s*(\d+)',
+        r'"stats"\s*:\s*\{[^}]*"monthlyListeners"\s*:\s*(\d+)',
     ]
     
     for pattern in json_patterns:
@@ -409,25 +399,7 @@ def extract_monthly_listeners_from_html(html_content: str, artist_name: str) -> 
             except ValueError:
                 pass
     
-    # Strategy 3: Look for escaped JSON in script tags
-    script_pattern = r'<script[^>]*>(.*?)</script>'
-    script_matches = re.findall(script_pattern, html_content, re.DOTALL | re.IGNORECASE)
-    
-    for script in script_matches:
-        # Look for Next.js data
-        if '__NEXT_DATA__' in script or 'Spotify' in script:
-            # Try to find monthly listeners in the script
-            for pattern in json_patterns:
-                match = re.search(pattern, script, re.IGNORECASE)
-                if match:
-                    try:
-                        listeners = int(match.group(1))
-                        logging.info(f"Found {artist_name} listeners in script tag: {listeners:,}")
-                        return listeners
-                    except ValueError:
-                        pass
-    
-    # Strategy 4: BeautifulSoup text extraction
+    # Strategy 3: Look in the page text with BeautifulSoup
     try:
         soup = BeautifulSoup(html_content, 'html.parser')
         
@@ -435,45 +407,55 @@ def extract_monthly_listeners_from_html(html_content: str, artist_name: str) -> 
         for element in soup(["script", "style"]):
             element.decompose()
         
-        # Get all text
+        # Get text
         text = soup.get_text()
         
-        # Split into lines and look for monthly listeners
-        for line in text.splitlines():
-            if 'monthly listener' in line.lower():
-                # Try to parse the number from this line
-                listeners = parse_listener_number(line)
-                if listeners is not None:
-                    logging.info(f"Found {artist_name} listeners in page text: {listeners:,}")
-                    return listeners
+        # Look for monthly listeners in the text
+        listener_matches = re.finditer(r'(\d+(?:[.,]\d+)?(?:\s*[KMB])?|\b0)\s*monthly\s*listeners?', text, re.IGNORECASE)
+        
+        for match in listener_matches:
+            full_text = match.group(0)
+            listeners = parse_listener_number(full_text)
+            if listeners is not None:
+                logging.info(f"Found {artist_name} listeners in page text: {listeners:,}")
+                return listeners
                 
-                # Also try to find just numbers in the line
-                numbers = re.findall(r'\d+', line)
-                for num_str in numbers:
-                    try:
-                        value = int(num_str)
-                        if 0 < value < 100000000:  # Reasonable range
-                            logging.info(f"Found {artist_name} listeners from number in text: {value:,}")
-                            return value
-                    except ValueError:
-                        continue
     except Exception as e:
         logging.debug(f"BeautifulSoup parsing error for {artist_name}: {e}")
     
-    # Strategy 5: Look in structured data (JSON-LD)
-    jsonld_pattern = r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>'
-    jsonld_matches = re.findall(jsonld_pattern, html_content, re.DOTALL | re.IGNORECASE)
+    # Strategy 4: Check for patterns in script tags (React/Next.js apps)
+    script_pattern = r'<script[^>]*>(.*?)</script>'
+    script_matches = re.findall(script_pattern, html_content, re.DOTALL | re.IGNORECASE)
     
-    for jsonld in jsonld_matches:
-        try:
-            data = json.loads(jsonld)
-            # Recursively search for monthly listeners
-            result = find_listeners_in_json(data)
-            if result is not None:
-                logging.info(f"Found {artist_name} listeners in JSON-LD: {result:,}")
-                return result
-        except:
-            pass
+    for script in script_matches:
+        if 'monthly' in script.lower() and 'listener' in script.lower():
+            # Look for patterns in scripts
+            listener_match = re.search(r'(\d+(?:[.,]\d+)?(?:\s*[KMB])?|\b0)\s*monthly\s*listeners?', script, re.IGNORECASE)
+            if listener_match:
+                full_text = listener_match.group(0)
+                listeners = parse_listener_number(full_text)
+                if listeners is not None:
+                    logging.info(f"Found {artist_name} listeners in script: {listeners:,}")
+                    return listeners
+    
+    # Strategy 5: Look for any occurrence of monthly listeners with flexible spacing
+    flexible_patterns = [
+        r'(\d+)\s+monthly\s+listeners',
+        r'(\d+)\s*monthly\s*listeners',
+        r'monthly\s+listeners[:\s]+(\d+)',
+        r'has\s+(\d+)\s+monthly\s+listeners',
+    ]
+    
+    for pattern in flexible_patterns:
+        match = re.search(pattern, html_content, re.IGNORECASE)
+        if match:
+            try:
+                listeners = int(match.group(1))
+                if 0 <= listeners <= 1000000000:
+                    logging.info(f"Found {artist_name} listeners with flexible pattern: {listeners:,}")
+                    return listeners
+            except:
+                pass
     
     return None
 
@@ -533,7 +515,7 @@ def create_session_with_retry():
 
 def scrape_monthly_listeners(artist_id: str, artist_name: str) -> str:
     """
-    Scrapes monthly listeners from Spotify's public artist page with multiple strategies
+    Scrapes monthly listeners from Spotify's public artist page
     """
     if not artist_id:
         return "N/A"
@@ -608,6 +590,12 @@ def scrape_monthly_listeners(artist_id: str, artist_name: str) -> str:
             with open(debug_file, 'w', encoding='utf-8') as f:
                 f.write(response.text)
             logging.warning(f"Could not find monthly listeners for {artist_name}. Debug HTML saved to {debug_file}")
+            
+            # Extra debugging - look for any numbers near "monthly"
+            monthly_regions = re.finditer(r'.{0,100}monthly.{0,100}', response.text, re.IGNORECASE)
+            for i, match in enumerate(monthly_regions):
+                if i < 3:  # First 3 occurrences
+                    logging.debug(f"Context around 'monthly' #{i+1}: {repr(match.group())}")
         
         logging.warning(f"✗ Could not find monthly listeners for {artist_name} after all attempts")
         return "N/A"
@@ -671,7 +659,7 @@ def get_spotify_artist_data(artist_id, token, artist_name):
                     'preview_url': track.get('preview_url', '')
                 })
 
-        # Scrape monthly listeners with enhanced scraping
+        # Scrape monthly listeners
         logging.info(f"Scraping monthly listeners for {artist_name}...")
         monthly_listeners = scrape_monthly_listeners(artist_id, artist_name)
         
@@ -793,7 +781,7 @@ def collect_all_data():
     
     all_artists_data = {
         'date': today,
-        'discord': discord_data,  # Add Discord data at top level
+        'discord': discord_data,
         'artists': []
     }
     
