@@ -2,6 +2,7 @@
 """
 Robust Spotify, YouTube, Instagram, and Discord data collection script
 Handles K/M/B notation and meta tag extraction
+Enhanced scraping capabilities for monthly listeners
 """
 
 import base64
@@ -46,7 +47,6 @@ DISCORD_BOT_TOKEN = 'YOUR_DISCORD_BOT_TOKEN_HERE'  # Replace with your bot token
 DISCORD_GUILD_ID = '1000913895415877712'  # Your Discord server ID
 
 # List of artists with their platform IDs
-# NOTE: Pax has been completely removed from tracking
 artists = [
     {
         'name': 'Casa 24',
@@ -92,9 +92,9 @@ artists = [
     },
     {
         'name': 'Casa 24Beats',
-        'spotify_id': None,  # No Spotify presence
+        'spotify_id': None,
         'youtube_id': 'UCg3IuQwjIBbkvEbDVJZd8VQ',
-        'instagram_username': None,  # No Instagram presence
+        'instagram_username': None,
     }
 ]
 
@@ -107,7 +107,9 @@ class AntiDetectionManager:
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:124.0) Gecko/20100101 Firefox/124.0',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 14_1) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0'
     ]
     
     @staticmethod
@@ -126,7 +128,10 @@ class AntiDetectionManager:
             'Sec-Fetch-Site': 'none',
             'Sec-Fetch-User': '?1',
             'Cache-Control': 'no-cache',
-            'Pragma': 'no-cache'
+            'Pragma': 'no-cache',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"'
         }
     
     @staticmethod
@@ -138,7 +143,7 @@ class AntiDetectionManager:
 
 def get_discord_member_count() -> Dict:
     """
-    Fetch Discord server member count using bot token.
+    Fetch Discord server member count using bot API.
     
     Returns:
         Dict with Discord server metrics
@@ -146,99 +151,606 @@ def get_discord_member_count() -> Dict:
     if not DISCORD_BOT_TOKEN or DISCORD_BOT_TOKEN == 'YOUR_DISCORD_BOT_TOKEN_HERE':
         logging.warning("Discord bot token not configured, skipping Discord data collection")
         return {
-            'server_name': None,
             'member_count': 0,
             'online_count': 0,
-            'collected_at': datetime.now().isoformat()
-        }
-    
-    if not DISCORD_GUILD_ID:
-        logging.warning("Discord guild ID not configured")
-        return {
             'server_name': None,
-            'member_count': 0,
-            'online_count': 0,
-            'collected_at': datetime.now().isoformat()
+            'server_id': None
         }
     
     try:
-        # Set up headers with bot authentication
         headers = {
             'Authorization': f'Bot {DISCORD_BOT_TOKEN}',
             'Content-Type': 'application/json'
         }
         
-        # Discord API endpoint for guild info with counts
         url = f'https://discord.com/api/v10/guilds/{DISCORD_GUILD_ID}?with_counts=true'
         
-        logging.info(f"Fetching Discord server data...")
+        logging.info(f"Fetching Discord server member count...")
         response = requests.get(url, headers=headers, timeout=10)
         
         if response.status_code == 200:
             data = response.json()
-            
-            server_name = data.get('name', 'Unknown')
             member_count = data.get('approximate_member_count', 0)
             online_count = data.get('approximate_presence_count', 0)
+            server_name = data.get('name', 'Unknown')
             
-            logging.info(f"✓ Successfully fetched Discord data: {server_name} - {member_count:,} members ({online_count:,} online)")
+            logging.info(f"✓ Discord server '{server_name}': {member_count:,} members ({online_count:,} online)")
             
             return {
-                'server_name': server_name,
                 'member_count': member_count,
                 'online_count': online_count,
-                'collected_at': datetime.now().isoformat()
+                'server_name': server_name,
+                'server_id': DISCORD_GUILD_ID
             }
-            
         elif response.status_code == 401:
-            logging.error("Discord: Invalid bot token - check your token")
-            return {
-                'server_name': 'Auth Error',
-                'member_count': 0,
-                'online_count': 0,
-                'collected_at': datetime.now().isoformat()
-            }
+            logging.error("Discord bot token is invalid")
         elif response.status_code == 403:
-            logging.error("Discord: Bot doesn't have access to this guild")
-            return {
-                'server_name': 'Access Denied',
-                'member_count': 0,
-                'online_count': 0,
-                'collected_at': datetime.now().isoformat()
-            }
-        elif response.status_code == 429:
-            logging.warning("Discord: Rate limited - will retry later")
-            return {
-                'server_name': 'Rate Limited',
-                'member_count': 0,
-                'online_count': 0,
-                'collected_at': datetime.now().isoformat()
-            }
+            logging.error("Discord bot doesn't have access to this guild")
+        elif response.status_code == 404:
+            logging.error("Discord guild not found")
         else:
             logging.error(f"Discord API error: {response.status_code}")
-            return {
-                'server_name': 'API Error',
-                'member_count': 0,
-                'online_count': 0,
-                'collected_at': datetime.now().isoformat()
-            }
             
     except Exception as e:
-        logging.error(f"Error fetching Discord data: {e}")
+        logging.error(f"Error getting Discord data: {e}")
+    
+    return {
+        'member_count': 0,
+        'online_count': 0,
+        'server_name': None,
+        'server_id': None
+    }
+
+# ------------------ INSTAGRAM FUNCTIONS ------------------
+
+def get_instagram_data(username: str, artist_name: str) -> Dict:
+    """
+    Fetch Instagram data for a single artist using Business Discovery API.
+    """
+    if not username:
+        logging.info(f"{artist_name} has no Instagram username, skipping Instagram data collection")
         return {
-            'server_name': 'Error',
-            'member_count': 0,
-            'online_count': 0,
-            'collected_at': datetime.now().isoformat()
+            'followers': 0,
+            'media_count': 0,
+            'username': None,
+            'name': None
+        }
+    
+    if not INSTAGRAM_ACCESS_TOKEN or not INSTAGRAM_BUSINESS_ACCOUNT_ID:
+        logging.warning(f"Instagram credentials not configured for {artist_name}")
+        return {
+            'followers': 0,
+            'media_count': 0,
+            'username': username,
+            'name': artist_name
+        }
+    
+    try:
+        clean_username = username.lstrip('@')
+        time.sleep(random.uniform(0.5, 0.75))
+        
+        url = f"https://graph.facebook.com/{INSTAGRAM_API_VERSION}/{INSTAGRAM_BUSINESS_ACCOUNT_ID}"
+        
+        params = {
+            'fields': f'business_discovery.username({clean_username}){{followers_count,media_count,username,name,biography}}',
+            'access_token': INSTAGRAM_ACCESS_TOKEN
+        }
+        
+        logging.info(f"Fetching Instagram data for @{clean_username}")
+        response = requests.get(url, params=params, timeout=10)
+        
+        if response.status_code == 200:
+            data = response.json()
+            
+            if 'business_discovery' in data:
+                discovery_data = data['business_discovery']
+                followers = discovery_data.get('followers_count', 0)
+                logging.info(f"✓ Successfully fetched Instagram data for {artist_name}: {followers:,} followers")
+                return {
+                    'followers': followers,
+                    'media_count': discovery_data.get('media_count', 0),
+                    'username': discovery_data.get('username', clean_username),
+                    'name': discovery_data.get('name', artist_name)
+                }
+            else:
+                logging.warning(f"No business_discovery data found for @{clean_username}")
+        elif response.status_code == 400:
+            logging.warning(f"Bad request for @{clean_username} - account may be private or not exist")
+        elif response.status_code == 429:
+            logging.warning(f"Rate limit hit for Instagram API")
+            time.sleep(5)
+        else:
+            logging.error(f"HTTP {response.status_code} error for @{clean_username}")
+    
+    except Exception as e:
+        logging.error(f"Error getting Instagram data for {artist_name}: {e}")
+    
+    return {
+        'followers': 0,
+        'media_count': 0,
+        'username': username,
+        'name': artist_name
+    }
+
+# ------------------ ENHANCED SPOTIFY SCRAPING FUNCTIONS ------------------
+
+def parse_listener_number(text: str) -> Optional[int]:
+    """
+    Parse monthly listeners from text with enhanced pattern matching
+    """
+    if not text:
+        return None
+    
+    # Clean the text more thoroughly
+    text = text.strip()
+    text = text.replace('\u00a0', ' ')  # non-breaking space
+    text = text.replace('\u202f', ' ')  # narrow non-breaking space
+    text = text.replace('\\u00B7', '·')  # middle dot
+    text = text.replace('\xa0', ' ')  # another non-breaking space variant
+    
+    # Enhanced K/M/B patterns
+    kmb_patterns = [
+        r'(\d+(?:\.\d+)?)\s*([KMB])\s*monthly\s*listeners?',
+        r'(\d+(?:\.\d+)?)\s*([KMB])\s+monthly\s*listeners?',
+        r'Artist\s*[·•]\s*(\d+(?:\.\d+)?)\s*([KMB])\s*monthly\s*listeners?',
+        r'(\d+(?:[.,]\d+)?)\s*([KMB])\s*(?:monthly\s*)?listeners?',
+        r'(\d+(?:\.\d+)?)\s*([KkMmBb])',  # Just number + K/M/B anywhere
+    ]
+    
+    for pattern in kmb_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            number = float(match.group(1).replace(',', '.'))
+            multiplier = match.group(2).upper()
+            
+            multipliers = {
+                'K': 1000,
+                'M': 1000000,
+                'B': 1000000000
+            }
+            
+            result = int(number * multipliers.get(multiplier, 1))
+            logging.debug(f"Parsed {text} as {result} using K/M/B notation")
+            return result
+    
+    # Standard number patterns with better handling
+    patterns = [
+        r'([\d,.\s]+)\s*monthly\s*listeners?',
+        r'Artist\s*[·•]\s*([\d,.\s]+)\s*monthly\s*listeners?',
+        r'([\d,.\s]+)\s*(?:monthly\s*)?listeners?',
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            number_str = match.group(1).strip()
+            
+            # Handle European vs American number formats
+            if '.' in number_str and ',' not in number_str:
+                parts = number_str.split('.')
+                if len(parts) > 1 and all(len(part) == 3 for part in parts[1:]):
+                    clean_number = number_str.replace('.', '')
+                else:
+                    clean_number = number_str.split('.')[0]
+            else:
+                clean_number = re.sub(r'[,.\s]', '', number_str)
+            
+            try:
+                value = int(clean_number)
+                if value >= 0:
+                    return value
+            except ValueError:
+                continue
+    
+    return None
+
+def extract_monthly_listeners_from_html(html_content: str, artist_name: str) -> Optional[int]:
+    """
+    Enhanced extraction with multiple fallback strategies
+    """
+    
+    # Clean HTML content thoroughly
+    html_content = html_content.replace('\u00a0', ' ')
+    html_content = html_content.replace('\u202f', ' ')
+    html_content = html_content.replace('\\u00B7', '·')
+    html_content = html_content.replace('\xa0', ' ')
+    
+    # Strategy 1: Check meta tags (most reliable)
+    meta_patterns = [
+        r'<meta[^>]*property="og:description"[^>]*content="([^"]*)"',
+        r'<meta[^>]*content="([^"]*)"[^>]*property="og:description"',
+        r'<meta[^>]*name="description"[^>]*content="([^"]*)"',
+        r'<meta[^>]*content="([^"]*)"[^>]*name="description"',
+        r'<meta[^>]*name="twitter:description"[^>]*content="([^"]*)"',
+        r'<meta[^>]*content="([^"]*)"[^>]*name="twitter:description"',
+    ]
+    
+    for pattern in meta_patterns:
+        matches = re.findall(pattern, html_content, re.IGNORECASE)
+        for match in matches:
+            match = html.unescape(match)
+            if 'monthly listener' in match.lower() or ('listener' in match.lower() and any(c in match for c in 'KMB0123456789')):
+                listeners = parse_listener_number(match)
+                if listeners is not None:
+                    logging.info(f"Found {artist_name} listeners in meta tag: {listeners:,}")
+                    return listeners
+    
+    # Strategy 2: Look for JSON-LD structured data
+    jsonld_pattern = r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>'
+    jsonld_matches = re.findall(jsonld_pattern, html_content, re.DOTALL | re.IGNORECASE)
+    
+    for jsonld in jsonld_matches:
+        try:
+            data = json.loads(jsonld)
+            # Recursively search for monthly listeners in JSON
+            result = find_listeners_in_json_structure(data)
+            if result:
+                logging.info(f"Found {artist_name} listeners in JSON-LD: {result:,}")
+                return result
+        except:
+            pass
+    
+    # Strategy 3: Look for Spotify's Next.js data
+    nextjs_patterns = [
+        r'__NEXT_DATA__.*?"monthlyListeners":(\d+)',
+        r'"monthly_listeners":(\d+)',
+        r'"monthlyListeners":(\d+)',
+        r'monthlyListeners["\']?\s*:\s*(\d+)',
+    ]
+    
+    for pattern in nextjs_patterns:
+        match = re.search(pattern, html_content, re.IGNORECASE)
+        if match:
+            try:
+                listeners = int(match.group(1))
+                logging.info(f"Found {artist_name} listeners in Next.js data: {listeners:,}")
+                return listeners
+            except:
+                pass
+    
+    # Strategy 4: Enhanced text search with BeautifulSoup
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Remove script and style elements
+        for script in soup(["script", "style"]):
+            script.decompose()
+        
+        # Get all text
+        text = soup.get_text()
+        lines = (line.strip() for line in text.splitlines())
+        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
+        text = ' '.join(chunk for chunk in chunks if chunk)
+        
+        # Look for patterns in cleaned text
+        if 'monthly listener' in text.lower():
+            # Find the context around "monthly listener"
+            for match in re.finditer(r'.{0,50}monthly\s*listeners?.{0,50}', text, re.IGNORECASE):
+                context = match.group()
+                listeners = parse_listener_number(context)
+                if listeners is not None:
+                    logging.info(f"Found {artist_name} listeners in page text: {listeners:,}")
+                    return listeners
+    except Exception as e:
+        logging.debug(f"BeautifulSoup parsing error for {artist_name}: {e}")
+    
+    # Strategy 5: Look for any K/M notation near artist name
+    artist_name_pattern = re.escape(artist_name)
+    proximity_pattern = f'{artist_name_pattern}.{{0,200}}(\d+(?:\.\d+)?[KMB])'
+    
+    match = re.search(proximity_pattern, html_content, re.IGNORECASE | re.DOTALL)
+    if match:
+        potential_listeners = parse_listener_number(match.group(1) + " monthly listeners")
+        if potential_listeners and potential_listeners > 100:  # Sanity check
+            logging.info(f"Found {artist_name} listeners via proximity search: {potential_listeners:,}")
+            return potential_listeners
+    
+    return None
+
+def find_listeners_in_json_structure(obj, depth=0, max_depth=10):
+    """Recursively search for monthly listeners in JSON structure"""
+    if depth > max_depth:
+        return None
+    
+    if isinstance(obj, dict):
+        # Direct monthly listeners keys
+        listener_keys = [
+            'monthly_listeners', 'monthlyListeners', 'listeners',
+            'stats', 'statistics', 'followerStats'
+        ]
+        
+        for key in listener_keys:
+            if key in obj:
+                if isinstance(obj[key], (int, float)):
+                    if obj[key] > 0:
+                        return int(obj[key])
+                elif isinstance(obj[key], dict):
+                    for subkey in ['monthly', 'total', 'count']:
+                        if subkey in obj[key] and isinstance(obj[key][subkey], (int, float)):
+                            if obj[key][subkey] > 0:
+                                return int(obj[key][subkey])
+        
+        # Recursively search
+        for value in obj.values():
+            result = find_listeners_in_json_structure(value, depth + 1, max_depth)
+            if result is not None:
+                return result
+    
+    elif isinstance(obj, list):
+        for item in obj:
+            result = find_listeners_in_json_structure(item, depth + 1, max_depth)
+            if result is not None:
+                return result
+    
+    return None
+
+def create_session_with_retry():
+    """Create a session with retry strategy and connection pooling"""
+    session = requests.Session()
+    
+    retry_strategy = Retry(
+        total=3,
+        backoff_factor=1,
+        status_forcelist=[429, 500, 502, 503, 504],
+        allowed_methods=["HEAD", "GET", "OPTIONS"],
+        raise_on_status=False
+    )
+    
+    adapter = HTTPAdapter(
+        max_retries=retry_strategy,
+        pool_maxsize=10,
+        pool_block=True
+    )
+    
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    
+    return session
+
+def scrape_monthly_listeners(artist_id: str, artist_name: str) -> str:
+    """
+    Enhanced scraping with multiple attempts and strategies
+    """
+    if not artist_id:
+        return "N/A"
+    
+    try:
+        url = f"https://open.spotify.com/artist/{artist_id}"
+        
+        # Create session with retries
+        session = create_session_with_retry()
+        
+        # Try multiple user agents if first attempt fails
+        for attempt in range(3):
+            headers = AntiDetectionManager.get_headers()
+            
+            # Add Spotify-specific headers
+            headers.update({
+                'Referer': 'https://open.spotify.com/',
+                'Origin': 'https://open.spotify.com',
+                'Sec-Ch-Ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+                'Sec-Ch-Ua-Mobile': '?0',
+                'Sec-Ch-Ua-Platform': '"Windows"'
+            })
+            
+            # Vary the Accept header slightly
+            if attempt == 1:
+                headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
+            elif attempt == 2:
+                headers['Accept'] = '*/*'
+            
+            logging.info(f"Fetching Spotify page for {artist_name} (attempt {attempt + 1}/3)...")
+            
+            try:
+                response = session.get(url, headers=headers, timeout=15)
+                response.raise_for_status()
+                
+                # Extract monthly listeners
+                listeners = extract_monthly_listeners_from_html(response.text, artist_name)
+                
+                if listeners is not None:
+                    logging.info(f"✓ Successfully found {artist_name} monthly listeners: {listeners:,}")
+                    return str(listeners)
+                
+                # Add delay before retry
+                if attempt < 2:
+                    time.sleep(AntiDetectionManager.get_delay(1.5))
+                    
+            except requests.exceptions.RequestException as e:
+                logging.warning(f"Request error on attempt {attempt + 1} for {artist_name}: {e}")
+                if attempt < 2:
+                    time.sleep(2)
+        
+        # If all attempts failed, try one more time with a mobile user agent
+        mobile_headers = {
+            'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+        }
+        
+        mobile_url = f"https://open.spotify.com/artist/{artist_id}"
+        logging.info(f"Trying mobile user agent for {artist_name}...")
+        
+        response = session.get(mobile_url, headers=mobile_headers, timeout=10)
+        listeners = extract_monthly_listeners_from_html(response.text, artist_name)
+        
+        if listeners is not None:
+            logging.info(f"✓ Found {artist_name} listeners with mobile UA: {listeners:,}")
+            return str(listeners)
+        
+        logging.warning(f"✗ Could not find monthly listeners for {artist_name} after all attempts")
+        return "N/A"
+        
+    except Exception as e:
+        logging.error(f"Unexpected error scraping {artist_name}: {e}")
+        return "N/A"
+    finally:
+        if 'session' in locals():
+            session.close()
+
+def get_spotify_token():
+    """Gets an access token from Spotify API."""
+    auth_url = 'https://accounts.spotify.com/api/token'
+    auth_header = base64.b64encode(f"{CLIENT_ID}:{CLIENT_SECRET}".encode()).decode()
+
+    headers = {'Authorization': f'Basic {auth_header}'}
+    data = {'grant_type': 'client_credentials'}
+
+    try:
+        response = requests.post(auth_url, headers=headers, data=data, timeout=10)
+        response.raise_for_status()
+        response_data = response.json()
+        
+        return response_data['access_token']
+    except Exception as e:
+        logging.error(f"Failed to get Spotify token: {e}")
+        raise
+
+def get_spotify_artist_data(artist_id, token, artist_name):
+    """Gets name, popularity, followers, and monthly listeners for a Spotify artist."""
+    if not artist_id:
+        return {
+            'popularity_score': 0,
+            'followers': 0,
+            'monthly_listeners': "N/A",
+            'genres': [],
+            'top_tracks': []
+        }
+        
+    url = f"https://api.spotify.com/v1/artists/{artist_id}"
+    headers = {'Authorization': f'Bearer {token}'}
+    
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+        artist_data = response.json()
+
+        # Get artist's top tracks
+        tracks_url = f"https://api.spotify.com/v1/artists/{artist_id}/top-tracks?market=US"
+        tracks_response = requests.get(tracks_url, headers=headers, timeout=10)
+        tracks_response.raise_for_status()
+        tracks_data = tracks_response.json()
+        
+        top_tracks = []
+        if 'tracks' in tracks_data:
+            for track in tracks_data['tracks'][:5]:
+                top_tracks.append({
+                    'name': track['name'],
+                    'popularity': track['popularity'],
+                    'preview_url': track.get('preview_url', '')
+                })
+
+        # Scrape monthly listeners with enhanced scraping
+        logging.info(f"Scraping monthly listeners for {artist_name}...")
+        monthly_listeners = scrape_monthly_listeners(artist_id, artist_name)
+        
+        # Add a small delay to be respectful
+        time.sleep(AntiDetectionManager.get_delay(0.5))
+
+        return {
+            'popularity_score': artist_data.get('popularity', 0),
+            'followers': artist_data.get('followers', {}).get('total', 0),
+            'monthly_listeners': monthly_listeners,
+            'genres': artist_data.get('genres', []),
+            'top_tracks': top_tracks
+        }
+    except requests.exceptions.HTTPError as e:
+        if e.response.status_code == 401:
+            logging.error(f"Spotify API authentication failed for {artist_name}")
+        else:
+            logging.error(f"HTTP error getting Spotify data for {artist_name}: {e}")
+        return {
+            'popularity_score': 0,
+            'followers': 0,
+            'monthly_listeners': "N/A",
+            'genres': [],
+            'top_tracks': []
+        }
+    except Exception as e:
+        logging.error(f"Error getting Spotify data for {artist_name}: {e}")
+        return {
+            'popularity_score': 0,
+            'followers': 0,
+            'monthly_listeners': "N/A",
+            'genres': [],
+            'top_tracks': []
         }
 
-# [Keep all the existing Instagram, Spotify, and YouTube functions as they are]
-# ... (all the existing code for Instagram, Spotify, YouTube remains unchanged) ...
+# ------------------ YOUTUBE FUNCTIONS ------------------
+
+def get_youtube_channel_data(channel_id):
+    """Gets YouTube channel stats and top videos."""
+    if not channel_id:
+        return {'subscribers': 0, 'total_views': 0, 'video_count': 0, 'top_videos': []}
+
+    channel_url = f"https://www.googleapis.com/youtube/v3/channels?part=statistics&id={channel_id}&key={YOUTUBE_API_KEY}"
+    
+    try:
+        response = requests.get(channel_url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+
+        if 'items' in data and len(data['items']) > 0:
+            stats = data['items'][0]['statistics']
+            channel_data = {
+                'subscribers': int(stats.get('subscriberCount', 0)),  
+                'total_views': int(stats.get('viewCount', 0)),        
+                'video_count': int(stats.get('videoCount', 0)),
+                'top_videos': []
+            }
+            
+            # Get top videos
+            playlist_url = f"https://www.googleapis.com/youtube/v3/channels?part=contentDetails&id={channel_id}&key={YOUTUBE_API_KEY}"
+            playlist_response = requests.get(playlist_url, timeout=10)
+            playlist_response.raise_for_status()
+            playlist_data = playlist_response.json()
+            
+            if 'items' in playlist_data and len(playlist_data['items']) > 0:
+                uploads_playlist_id = playlist_data['items'][0]['contentDetails']['relatedPlaylists']['uploads']
+                
+                videos_url = f"https://www.googleapis.com/youtube/v3/playlistItems?part=snippet&playlistId={uploads_playlist_id}&maxResults=50&key={YOUTUBE_API_KEY}"
+                videos_response = requests.get(videos_url, timeout=10)
+                videos_response.raise_for_status()
+                videos_data = videos_response.json()
+                
+                if 'items' in videos_data:
+                    video_ids = [item['snippet']['resourceId']['videoId'] for item in videos_data['items']]
+                    
+                    if video_ids:
+                        video_stats_url = f"https://www.googleapis.com/youtube/v3/videos?part=statistics,snippet&id={','.join(video_ids[:50])}&key={YOUTUBE_API_KEY}"
+                        video_stats_response = requests.get(video_stats_url, timeout=10)
+                        video_stats_response.raise_for_status()
+                        video_stats_data = video_stats_response.json()
+                        
+                        if 'items' in video_stats_data:
+                            videos_with_views = []
+                            for video in video_stats_data['items']:
+                                view_count = int(video['statistics'].get('viewCount', 0))
+                                videos_with_views.append({
+                                    'title': video['snippet']['title'],
+                                    'views': view_count,
+                                    'video_id': video['id'],
+                                    'published_at': video['snippet']['publishedAt']
+                                })
+                            
+                            videos_with_views.sort(key=lambda x: x['views'], reverse=True)
+                            channel_data['top_videos'] = videos_with_views[:5]
+            
+            return channel_data
+        else:
+            logging.warning(f"No YouTube data found for channel {channel_id}")
+            return {'subscribers': 0, 'total_views': 0, 'video_count': 0, 'top_videos': []}
+            
+    except Exception as e:
+        logging.error(f"Error getting YouTube data for {channel_id}: {e}")
+        return {'subscribers': 0, 'total_views': 0, 'video_count': 0, 'top_videos': []}
 
 # ------------------ MAIN COLLECTION FUNCTION ------------------
 
 def collect_all_data():
-    """Collects all artist data from multiple platforms plus Discord server data."""
+    """Collects all artist data from multiple platforms including Discord."""
     today = datetime.now().strftime('%Y-%m-%d')
     
     try:
@@ -247,26 +759,23 @@ def collect_all_data():
         logging.error(f"Failed to get Spotify token: {e}")
         spotify_token = None
     
-    # Get Discord server data (separate from artists)
-    logging.info(f"\n{'='*50}")
-    logging.info("Collecting Discord server data...")
-    logging.info(f"{'='*50}")
+    # Get Discord data once (not per artist)
     discord_data = get_discord_member_count()
     
     all_artists_data = {
         'date': today,
-        'discord': discord_data,  # Add Discord data at the top level
+        'discord': discord_data,  # Add Discord data at top level
         'artists': []
     }
     
-    # Statistics - now includes Instagram and Discord
+    # Statistics
     stats = {
         'total': len(artists),
         'spotify_success': 0,
         'youtube_success': 0,
         'instagram_success': 0,
         'monthly_listeners_found': 0,
-        'discord_success': 1 if discord_data['member_count'] > 0 else 0
+        'discord_collected': 1 if discord_data['member_count'] > 0 else 0
     }
     
     for artist in artists:
@@ -317,13 +826,12 @@ def collect_all_data():
         
         all_artists_data['artists'].append(artist_data)
         
-        # Log progress
         logging.info(f"Progress: {len(all_artists_data['artists'])}/{stats['total']} artists processed")
         
         # Add a small delay between artists
         time.sleep(0.5)
     
-    # Log summary statistics - updated to include Discord
+    # Log summary statistics
     logging.info("\n" + "="*50)
     logging.info("COLLECTION SUMMARY")
     logging.info("="*50)
@@ -332,30 +840,39 @@ def collect_all_data():
     logging.info(f"Monthly listeners found: {stats['monthly_listeners_found']}/{stats['total']}")
     logging.info(f"YouTube API success: {stats['youtube_success']}/{stats['total']}")
     logging.info(f"Instagram API success: {stats['instagram_success']}/{stats['total']}")
-    logging.info(f"Discord server data: {'✓' if stats['discord_success'] else '✗'}")
+    logging.info(f"Discord data collected: {'Yes' if stats['discord_collected'] else 'No'}")
     logging.info("="*50)
     
     # Print summary including Discord
     print("\nData Collection Summary:")
-    print("-" * 60)
+    print("-" * 70)
     
-    # Print Discord server info
-    print(f"{'Discord Server':<20} Members: {discord_data['member_count']:>8}  Online: {discord_data['online_count']:>8}")
-    print("-" * 60)
+    # Discord server info
+    if discord_data['member_count'] > 0:
+        print(f"Discord Server: {discord_data['server_name']}")
+        print(f"  Members: {discord_data['member_count']:,} ({discord_data['online_count']:,} online)")
+        print("-" * 70)
     
-    # Print artist info
+    # Artist data
     for artist in all_artists_data['artists']:
         name = artist['name']
         listeners = artist['spotify']['monthly_listeners']
         yt_subs = artist['youtube']['subscribers']
         ig_followers = artist['instagram']['followers']
         print(f"{name:<20} Spotify: {listeners:>10}  YT: {yt_subs:>8}  IG: {ig_followers:>8}")
-    print("-" * 60)
+    print("-" * 70)
     
     return all_artists_data
 
+def save_data_as_json(data, filename):
+    """Saves the collected data as JSON."""
+    with open(filename, 'w') as f:
+        json.dump(data, f, indent=2)
+    
+    logging.info(f"Data saved to {filename}")
+
 def update_historical_data(data):
-    """Updates the historical data files including Discord data."""
+    """Updates the historical data files."""
     today = datetime.now().strftime('%Y-%m-%d')
     
     # Create directories if they don't exist
@@ -372,24 +889,6 @@ def update_historical_data(data):
     csv_file = 'data/popularity_scores.csv'
     artists_data = []
     
-    # Add Discord server data as a special entry
-    discord_info = {
-        'artist_name': 'DISCORD_SERVER',
-        'date': today,
-        'popularity_score': 0,
-        'followers': 0,
-        'monthly_listeners': 'N/A',
-        'youtube_subscribers': 0,
-        'youtube_total_views': 0,
-        'youtube_video_count': 0,
-        'instagram_followers': 0,
-        'instagram_media_count': 0,
-        'discord_members': data['discord']['member_count'],
-        'discord_online': data['discord']['online_count']
-    }
-    artists_data.append(discord_info)
-    
-    # Add artist data
     for artist in data['artists']:
         artist_info = {
             'artist_name': artist['name'],
@@ -401,11 +900,25 @@ def update_historical_data(data):
             'youtube_total_views': artist['youtube']['total_views'],
             'youtube_video_count': artist['youtube']['video_count'],
             'instagram_followers': artist['instagram']['followers'],
-            'instagram_media_count': artist['instagram'].get('media_count', 0),
-            'discord_members': 0,  # Artists don't have Discord data
-            'discord_online': 0
+            'instagram_media_count': artist['instagram'].get('media_count', 0)
         }
         artists_data.append(artist_info)
+    
+    # Add Discord data as a separate row if it exists
+    if data.get('discord') and data['discord']['member_count'] > 0:
+        discord_info = {
+            'artist_name': 'Discord Server',
+            'date': today,
+            'popularity_score': 0,
+            'followers': data['discord']['member_count'],
+            'monthly_listeners': data['discord']['online_count'],
+            'youtube_subscribers': 0,
+            'youtube_total_views': 0,
+            'youtube_video_count': 0,
+            'instagram_followers': 0,
+            'instagram_media_count': 0
+        }
+        artists_data.append(discord_info)
     
     df = pandas.DataFrame(artists_data)
     
@@ -439,7 +952,8 @@ if __name__ == "__main__":
         print("DATA COLLECTION COMPLETE!")
         print("="*60)
         print(f"Successfully collected data for {len(collected_data['artists'])} artists")
-        print(f"Discord server: {collected_data['discord']['member_count']} members")
+        if collected_data.get('discord') and collected_data['discord']['member_count'] > 0:
+            print(f"Discord server members: {collected_data['discord']['member_count']:,}")
         print(f"End time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
         print("="*60)
         
