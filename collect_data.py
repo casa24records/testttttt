@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 Robust Spotify, YouTube, Instagram, and Discord data collection script
-Handles K/M/B notation and meta tag extraction
-Enhanced scraping capabilities for monthly listeners
+Handles K/M/B notation and meta tag extraction with proper number parsing
+Fixed to correctly handle both small and large listener counts
 """
 
 import base64
@@ -272,72 +272,88 @@ def get_instagram_data(username: str, artist_name: str) -> Dict:
         'name': artist_name
     }
 
-# ------------------ ENHANCED SPOTIFY SCRAPING FUNCTIONS ------------------
+# ------------------ SPOTIFY SCRAPING FUNCTIONS (FIXED) ------------------
 
 def parse_listener_number(text: str) -> Optional[int]:
     """
-    Parse monthly listeners from text with enhanced pattern matching
+    Parse monthly listeners from text - FIXED to handle both raw numbers and K/M/B notation correctly
     """
     if not text:
         return None
     
-    # Clean the text more thoroughly
+    # Clean the text
     text = text.strip()
-    text = text.replace('\u00a0', ' ')  # non-breaking space
-    text = text.replace('\u202f', ' ')  # narrow non-breaking space
-    text = text.replace('\\u00B7', '·')  # middle dot
-    text = text.replace('\xa0', ' ')  # another non-breaking space variant
+    text = text.replace('\u00a0', ' ')
+    text = text.replace('\u202f', ' ')
+    text = text.replace('\\u00B7', '·')
+    text = text.replace('\xa0', ' ')
     
-    # Enhanced K/M/B patterns
+    # IMPORTANT: Check for raw numbers FIRST (like "554 monthly listeners")
+    # This prevents misinterpretation of small numbers
+    raw_patterns = [
+        r'(\d{1,6})\s*monthly\s*listeners?',  # Raw number up to 999,999
+        r'Artist\s*[·•]\s*(\d{1,6})\s*monthly\s*listeners?',
+    ]
+    
+    for pattern in raw_patterns:
+        match = re.search(pattern, text, re.IGNORECASE)
+        if match:
+            number_str = match.group(1)
+            # Check if this is followed by K/M/B
+            full_context = text[match.start():match.end() + 10] if match.end() + 10 < len(text) else text[match.start():]
+            if not re.search(r'[KMB]', full_context, re.IGNORECASE):
+                # It's a raw number, not abbreviated
+                try:
+                    value = int(number_str)
+                    if 0 <= value < 1000000:  # Reasonable range for raw numbers
+                        logging.debug(f"Parsed raw number from '{text}': {value}")
+                        return value
+                except ValueError:
+                    pass
+    
+    # NOW check for K/M/B notation
     kmb_patterns = [
-        r'(\d+(?:\.\d+)?)\s*([KMB])\s*monthly\s*listeners?',
-        r'(\d+(?:\.\d+)?)\s*([KMB])\s+monthly\s*listeners?',
-        r'Artist\s*[·•]\s*(\d+(?:\.\d+)?)\s*([KMB])\s*monthly\s*listeners?',
-        r'(\d+(?:[.,]\d+)?)\s*([KMB])\s*(?:monthly\s*)?listeners?',
-        r'(\d+(?:\.\d+)?)\s*([KkMmBb])',  # Just number + K/M/B anywhere
+        r'(\d+(?:[.,]\d+)?)\s*([KMB])\s*monthly\s*listeners?',
+        r'Artist\s*[·•]\s*(\d+(?:[.,]\d+)?)\s*([KMB])\s*monthly\s*listeners?',
+        r'(\d+(?:[.,]\d+)?)\s*([KMB])\s+monthly\s*listeners?',
     ]
     
     for pattern in kmb_patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            number = float(match.group(1).replace(',', '.'))
-            multiplier = match.group(2).upper()
-            
-            multipliers = {
-                'K': 1000,
-                'M': 1000000,
-                'B': 1000000000
-            }
-            
-            result = int(number * multipliers.get(multiplier, 1))
-            logging.debug(f"Parsed {text} as {result} using K/M/B notation")
-            return result
+            number_str = match.group(1).replace(',', '.')
+            try:
+                number = float(number_str)
+                multiplier = match.group(2).upper()
+                
+                multipliers = {
+                    'K': 1000,
+                    'M': 1000000,
+                    'B': 1000000000
+                }
+                
+                result = int(number * multipliers.get(multiplier, 1))
+                logging.debug(f"Parsed K/M/B notation from '{text}': {result}")
+                return result
+            except ValueError:
+                continue
     
-    # Standard number patterns with better handling
-    patterns = [
-        r'([\d,.\s]+)\s*monthly\s*listeners?',
-        r'Artist\s*[·•]\s*([\d,.\s]+)\s*monthly\s*listeners?',
-        r'([\d,.\s]+)\s*(?:monthly\s*)?listeners?',
+    # Last resort: try to find any number with thousands separators
+    separator_patterns = [
+        r'(\d{1,3}(?:[,.\s]\d{3})+)\s*monthly\s*listeners?',
+        r'Artist\s*[·•]\s*(\d{1,3}(?:[,.\s]\d{3})+)\s*monthly\s*listeners?',
     ]
     
-    for pattern in patterns:
+    for pattern in separator_patterns:
         match = re.search(pattern, text, re.IGNORECASE)
         if match:
-            number_str = match.group(1).strip()
-            
-            # Handle European vs American number formats
-            if '.' in number_str and ',' not in number_str:
-                parts = number_str.split('.')
-                if len(parts) > 1 and all(len(part) == 3 for part in parts[1:]):
-                    clean_number = number_str.replace('.', '')
-                else:
-                    clean_number = number_str.split('.')[0]
-            else:
-                clean_number = re.sub(r'[,.\s]', '', number_str)
-            
+            number_str = match.group(1)
+            # Remove all separators
+            clean_number = re.sub(r'[,.\s]', '', number_str)
             try:
                 value = int(clean_number)
-                if value >= 0:
+                if 0 <= value <= 1000000000:
+                    logging.debug(f"Parsed number with separators from '{text}': {value}")
                     return value
             except ValueError:
                 continue
@@ -346,16 +362,16 @@ def parse_listener_number(text: str) -> Optional[int]:
 
 def extract_monthly_listeners_from_html(html_content: str, artist_name: str) -> Optional[int]:
     """
-    Enhanced extraction with multiple fallback strategies
+    Extract monthly listeners with proper handling of both small and large numbers
     """
     
-    # Clean HTML content thoroughly
+    # Clean HTML content
     html_content = html_content.replace('\u00a0', ' ')
     html_content = html_content.replace('\u202f', ' ')
     html_content = html_content.replace('\\u00B7', '·')
     html_content = html_content.replace('\xa0', ' ')
     
-    # Strategy 1: Check meta tags (most reliable)
+    # Strategy 1: Check meta tags first (most reliable)
     meta_patterns = [
         r'<meta[^>]*property="og:description"[^>]*content="([^"]*)"',
         r'<meta[^>]*content="([^"]*)"[^>]*property="og:description"',
@@ -369,123 +385,131 @@ def extract_monthly_listeners_from_html(html_content: str, artist_name: str) -> 
         matches = re.findall(pattern, html_content, re.IGNORECASE)
         for match in matches:
             match = html.unescape(match)
-            if 'monthly listener' in match.lower() or ('listener' in match.lower() and any(c in match for c in 'KMB0123456789')):
+            if 'monthly listener' in match.lower():
                 listeners = parse_listener_number(match)
                 if listeners is not None:
-                    logging.info(f"Found {artist_name} listeners in meta tag: {listeners:,}")
+                    logging.info(f"Found {artist_name} listeners in meta tag: {listeners:,} from text: '{match}'")
                     return listeners
     
-    # Strategy 2: Look for JSON-LD structured data
+    # Strategy 2: Look for JSON data (very accurate when present)
+    json_patterns = [
+        r'"monthlyListeners"\s*:\s*(\d+)',
+        r'"monthly_listeners"\s*:\s*(\d+)',
+        r'monthlyListeners["\']?\s*:\s*(\d+)',
+        r'"followers"\s*:\s*{\s*"monthly"\s*:\s*(\d+)',
+    ]
+    
+    for pattern in json_patterns:
+        match = re.search(pattern, html_content, re.IGNORECASE)
+        if match:
+            try:
+                listeners = int(match.group(1))
+                logging.info(f"Found {artist_name} listeners in JSON: {listeners:,}")
+                return listeners
+            except ValueError:
+                pass
+    
+    # Strategy 3: Look for escaped JSON in script tags
+    script_pattern = r'<script[^>]*>(.*?)</script>'
+    script_matches = re.findall(script_pattern, html_content, re.DOTALL | re.IGNORECASE)
+    
+    for script in script_matches:
+        # Look for Next.js data
+        if '__NEXT_DATA__' in script or 'Spotify' in script:
+            # Try to find monthly listeners in the script
+            for pattern in json_patterns:
+                match = re.search(pattern, script, re.IGNORECASE)
+                if match:
+                    try:
+                        listeners = int(match.group(1))
+                        logging.info(f"Found {artist_name} listeners in script tag: {listeners:,}")
+                        return listeners
+                    except ValueError:
+                        pass
+    
+    # Strategy 4: BeautifulSoup text extraction
+    try:
+        soup = BeautifulSoup(html_content, 'html.parser')
+        
+        # Remove script and style elements
+        for element in soup(["script", "style"]):
+            element.decompose()
+        
+        # Get all text
+        text = soup.get_text()
+        
+        # Split into lines and look for monthly listeners
+        for line in text.splitlines():
+            if 'monthly listener' in line.lower():
+                # Try to parse the number from this line
+                listeners = parse_listener_number(line)
+                if listeners is not None:
+                    logging.info(f"Found {artist_name} listeners in page text: {listeners:,}")
+                    return listeners
+                
+                # Also try to find just numbers in the line
+                numbers = re.findall(r'\d+', line)
+                for num_str in numbers:
+                    try:
+                        value = int(num_str)
+                        if 0 < value < 100000000:  # Reasonable range
+                            logging.info(f"Found {artist_name} listeners from number in text: {value:,}")
+                            return value
+                    except ValueError:
+                        continue
+    except Exception as e:
+        logging.debug(f"BeautifulSoup parsing error for {artist_name}: {e}")
+    
+    # Strategy 5: Look in structured data (JSON-LD)
     jsonld_pattern = r'<script[^>]*type="application/ld\+json"[^>]*>(.*?)</script>'
     jsonld_matches = re.findall(jsonld_pattern, html_content, re.DOTALL | re.IGNORECASE)
     
     for jsonld in jsonld_matches:
         try:
             data = json.loads(jsonld)
-            # Recursively search for monthly listeners in JSON
-            result = find_listeners_in_json_structure(data)
-            if result:
+            # Recursively search for monthly listeners
+            result = find_listeners_in_json(data)
+            if result is not None:
                 logging.info(f"Found {artist_name} listeners in JSON-LD: {result:,}")
                 return result
         except:
             pass
     
-    # Strategy 3: Look for Spotify's Next.js data
-    nextjs_patterns = [
-        r'__NEXT_DATA__.*?"monthlyListeners":(\d+)',
-        r'"monthly_listeners":(\d+)',
-        r'"monthlyListeners":(\d+)',
-        r'monthlyListeners["\']?\s*:\s*(\d+)',
-    ]
-    
-    for pattern in nextjs_patterns:
-        match = re.search(pattern, html_content, re.IGNORECASE)
-        if match:
-            try:
-                listeners = int(match.group(1))
-                logging.info(f"Found {artist_name} listeners in Next.js data: {listeners:,}")
-                return listeners
-            except:
-                pass
-    
-    # Strategy 4: Enhanced text search with BeautifulSoup
-    try:
-        soup = BeautifulSoup(html_content, 'html.parser')
-        
-        # Remove script and style elements
-        for script in soup(["script", "style"]):
-            script.decompose()
-        
-        # Get all text
-        text = soup.get_text()
-        lines = (line.strip() for line in text.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        text = ' '.join(chunk for chunk in chunks if chunk)
-        
-        # Look for patterns in cleaned text
-        if 'monthly listener' in text.lower():
-            # Find the context around "monthly listener"
-            for match in re.finditer(r'.{0,50}monthly\s*listeners?.{0,50}', text, re.IGNORECASE):
-                context = match.group()
-                listeners = parse_listener_number(context)
-                if listeners is not None:
-                    logging.info(f"Found {artist_name} listeners in page text: {listeners:,}")
-                    return listeners
-    except Exception as e:
-        logging.debug(f"BeautifulSoup parsing error for {artist_name}: {e}")
-    
-    # Strategy 5: Look for any K/M notation near artist name
-    artist_name_pattern = re.escape(artist_name)
-    proximity_pattern = f'{artist_name_pattern}.{{0,200}}(\d+(?:\.\d+)?[KMB])'
-    
-    match = re.search(proximity_pattern, html_content, re.IGNORECASE | re.DOTALL)
-    if match:
-        potential_listeners = parse_listener_number(match.group(1) + " monthly listeners")
-        if potential_listeners and potential_listeners > 100:  # Sanity check
-            logging.info(f"Found {artist_name} listeners via proximity search: {potential_listeners:,}")
-            return potential_listeners
-    
     return None
 
-def find_listeners_in_json_structure(obj, depth=0, max_depth=10):
-    """Recursively search for monthly listeners in JSON structure"""
+def find_listeners_in_json(obj, depth=0, max_depth=10):
+    """Recursively search for monthly listeners in JSON object"""
     if depth > max_depth:
         return None
     
     if isinstance(obj, dict):
-        # Direct monthly listeners keys
-        listener_keys = [
-            'monthly_listeners', 'monthlyListeners', 'listeners',
-            'stats', 'statistics', 'followerStats'
-        ]
-        
-        for key in listener_keys:
+        # Check for direct monthly listeners keys
+        for key in ['monthly_listeners', 'monthlyListeners', 'listeners', 'monthly']:
             if key in obj:
                 if isinstance(obj[key], (int, float)):
-                    if obj[key] > 0:
-                        return int(obj[key])
-                elif isinstance(obj[key], dict):
-                    for subkey in ['monthly', 'total', 'count']:
-                        if subkey in obj[key] and isinstance(obj[key][subkey], (int, float)):
-                            if obj[key][subkey] > 0:
-                                return int(obj[key][subkey])
+                    return int(obj[key])
+                elif isinstance(obj[key], str) and obj[key].isdigit():
+                    return int(obj[key])
+                elif isinstance(obj[key], dict) and 'monthly' in obj[key]:
+                    if isinstance(obj[key]['monthly'], (int, float)):
+                        return int(obj[key]['monthly'])
         
         # Recursively search
         for value in obj.values():
-            result = find_listeners_in_json_structure(value, depth + 1, max_depth)
+            result = find_listeners_in_json(value, depth + 1, max_depth)
             if result is not None:
                 return result
     
     elif isinstance(obj, list):
         for item in obj:
-            result = find_listeners_in_json_structure(item, depth + 1, max_depth)
+            result = find_listeners_in_json(item, depth + 1, max_depth)
             if result is not None:
                 return result
     
     return None
 
 def create_session_with_retry():
-    """Create a session with retry strategy and connection pooling"""
+    """Create a session with retry strategy"""
     session = requests.Session()
     
     retry_strategy = Retry(
@@ -509,7 +533,7 @@ def create_session_with_retry():
 
 def scrape_monthly_listeners(artist_id: str, artist_name: str) -> str:
     """
-    Enhanced scraping with multiple attempts and strategies
+    Scrapes monthly listeners from Spotify's public artist page with multiple strategies
     """
     if not artist_id:
         return "N/A"
@@ -520,7 +544,7 @@ def scrape_monthly_listeners(artist_id: str, artist_name: str) -> str:
         # Create session with retries
         session = create_session_with_retry()
         
-        # Try multiple user agents if first attempt fails
+        # Try multiple attempts with different headers
         for attempt in range(3):
             headers = AntiDetectionManager.get_headers()
             
@@ -533,7 +557,7 @@ def scrape_monthly_listeners(artist_id: str, artist_name: str) -> str:
                 'Sec-Ch-Ua-Platform': '"Windows"'
             })
             
-            # Vary the Accept header slightly
+            # Vary Accept header
             if attempt == 1:
                 headers['Accept'] = 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'
             elif attempt == 2:
@@ -561,7 +585,7 @@ def scrape_monthly_listeners(artist_id: str, artist_name: str) -> str:
                 if attempt < 2:
                     time.sleep(2)
         
-        # If all attempts failed, try one more time with a mobile user agent
+        # Final attempt with mobile user agent
         mobile_headers = {
             'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -570,15 +594,20 @@ def scrape_monthly_listeners(artist_id: str, artist_name: str) -> str:
             'Connection': 'keep-alive',
         }
         
-        mobile_url = f"https://open.spotify.com/artist/{artist_id}"
         logging.info(f"Trying mobile user agent for {artist_name}...")
-        
-        response = session.get(mobile_url, headers=mobile_headers, timeout=10)
+        response = session.get(url, headers=mobile_headers, timeout=10)
         listeners = extract_monthly_listeners_from_html(response.text, artist_name)
         
         if listeners is not None:
             logging.info(f"✓ Found {artist_name} listeners with mobile UA: {listeners:,}")
             return str(listeners)
+        
+        # Save debug HTML for problematic artists
+        if artist_name in ['Casa 24', 'ZACKO', 'Chef Lino']:
+            debug_file = f"debug_{artist_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html"
+            with open(debug_file, 'w', encoding='utf-8') as f:
+                f.write(response.text)
+            logging.warning(f"Could not find monthly listeners for {artist_name}. Debug HTML saved to {debug_file}")
         
         logging.warning(f"✗ Could not find monthly listeners for {artist_name} after all attempts")
         return "N/A"
